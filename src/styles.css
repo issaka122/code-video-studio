@@ -1,0 +1,256 @@
+const canvas = document.getElementById('sceneCanvas');
+const ctx = canvas.getContext('2d');
+
+const codeInput = document.getElementById('codeInput');
+const promptInput = document.getElementById('promptInput');
+const durationSelect = document.getElementById('durationSelect');
+const generateBtn = document.getElementById('generateBtn');
+const voicePreviewBtn = document.getElementById('voicePreviewBtn');
+const statusEl = document.getElementById('status');
+const downloadLink = document.getElementById('downloadLink');
+
+let mediaRecorder;
+let recordedChunks = [];
+let activeAnimation = null;
+
+function setStatus(message, isError = false) {
+  statusEl.textContent = message;
+  statusEl.classList.toggle('error', isError);
+}
+
+function formatTime(value) {
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.floor(value % 60);
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function buildScript(prompt, code) {
+  const trimmedPrompt = (prompt || 'Présentation du projet').trim();
+  const lines = code.split('\n').filter(Boolean);
+  const intro = `Bonjour. Nous allons présenter : ${trimmedPrompt}.`;
+  const mid = lines.length > 0 ? `Voici le cœur de l’application : ${lines[Math.min(lines.length - 1, 3)].slice(0, 80)}` : 'Voici la structure du code.';
+  const end = 'En résumé, cette solution est claire, rapide et prête à être déployée.';
+  return [intro, mid, end];
+}
+
+function drawBackground() {
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, '#08111f');
+  gradient.addColorStop(0.5, '#101a2d');
+  gradient.addColorStop(1, '#0b1220');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'rgba(91, 142, 255, 0.15)';
+  for (let i = 0; i < 26; i += 1) {
+    const x = (i * 61) % canvas.width;
+    const y = (i * 97) % canvas.height;
+    ctx.fillRect(x, y, 140, 80);
+  }
+}
+
+function drawCodeFrame(code, progress, activeLineIndex) {
+  const panelX = 72;
+  const panelY = 120;
+  const panelW = 820;
+  const panelH = 520;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+  ctx.fillStyle = '#7dd3fc';
+  ctx.font = '600 24px Inter';
+  ctx.fillText('main.js', panelX + 24, panelY + 42);
+
+  const lines = code.split('\n');
+  const lineHeight = 32;
+  const baseStartY = panelY + 80;
+  const scrollOffset = Math.max(0, (progress * Math.max(0, lines.length * lineHeight - 360)));
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const y = baseStartY + i * lineHeight - scrollOffset;
+    if (y < panelY + 20 || y > panelY + panelH - 30) continue;
+
+    const isActive = i === activeLineIndex;
+    if (isActive) {
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.18)';
+      ctx.fillRect(panelX + 10, y - 20, panelW - 20, lineHeight - 4);
+    }
+
+    ctx.fillStyle = isActive ? '#f8fafc' : '#9fb8d9';
+    ctx.font = '500 24px "SFMono-Regular", Consolas, monospace';
+    ctx.fillText(lines[i] || ' ', panelX + 26, y);
+  }
+}
+
+function drawRightPanel(script, elapsed, duration) {
+  const x = 930;
+  const y = 120;
+  const w = 280;
+  const h = 520;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = '#8b5cf6';
+  ctx.font = '700 22px Inter';
+  ctx.fillText('AI Scene', x + 22, y + 42);
+
+  const sceneIndex = Math.min(script.length - 1, Math.floor((elapsed / Math.max(duration, 0.1)) * script.length));
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 28px Inter';
+  ctx.fillText('Narration', x + 22, y + 100);
+
+  ctx.font = '500 22px Inter';
+  const lines = script[sceneIndex].split(' ');
+  let current = '';
+  let lineCount = 0;
+  let currentY = y + 150;
+
+  for (const word of lines) {
+    const test = `${current} ${word}`.trim();
+    if (test.length > 28 && current) {
+      ctx.fillText(current, x + 22, currentY);
+      current = word;
+      currentY += 32;
+      lineCount += 1;
+    } else {
+      current = test;
+    }
+  }
+
+  if (current) {
+    ctx.fillText(current, x + 22, currentY);
+  }
+
+  ctx.fillStyle = '#34d399';
+  ctx.font = '600 18px Inter';
+  ctx.fillText('Live output', x + 22, y + h - 60);
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillText(`Durée: ${formatTime(duration)}`, x + 22, y + h - 28);
+}
+
+function drawHud(elapsed, duration) {
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.58)';
+  ctx.fillRect(0, 0, canvas.width, 86);
+
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = '700 30px Inter';
+  ctx.fillText('CodeVideo Studio', 72, 50);
+
+  ctx.fillStyle = '#7dd3fc';
+  ctx.font = '600 22px Inter';
+  ctx.fillText(`${formatTime(elapsed)} / ${formatTime(duration)}`, canvas.width - 210, 50);
+}
+
+function drawFrame(code, prompt, progress, duration, elapsed) {
+  drawBackground();
+  drawHud(elapsed, duration);
+
+  const lines = code.split('\n');
+  const activeLineIndex = Math.min(lines.length - 1, Math.floor((progress || 0) * lines.length));
+  const script = buildScript(prompt, code);
+
+  drawCodeFrame(code, progress, activeLineIndex);
+  drawRightPanel(script, elapsed, duration);
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  ctx.fillRect(72, 646, 1060, 68);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '600 28px Inter';
+  const mainCaption = script[Math.min(script.length - 1, Math.floor(progress * script.length))];
+  ctx.fillText(mainCaption, 98, 690);
+}
+
+function stopPreviousRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+}
+
+function createVideoExport() {
+  const code = codeInput.value || 'console.log("Hello world");';
+  const prompt = promptInput.value || 'Présentation du produit';
+  const duration = Number(durationSelect.value);
+
+  stopPreviousRecording();
+  downloadLink.classList.add('hidden');
+  downloadLink.href = '#';
+
+  if (!window.MediaRecorder) {
+    setStatus('Votre navigateur ne supporte pas l’export vidéo. Essayez Chrome ou Edge.', true);
+    return;
+  }
+
+  setStatus('Génération de la vidéo en cours...');
+  recordedChunks = [];
+
+  const stream = canvas.captureStream(30);
+  mediaRecorder = new MediaRecorder(stream, {
+    mimeType: 'video/webm;codecs=vp9'
+  });
+
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) {
+      recordedChunks.push(event.data);
+    }
+  };
+
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    downloadLink.href = url;
+    downloadLink.classList.remove('hidden');
+    setStatus('Vidéo générée avec succès.');
+  };
+
+  const start = performance.now();
+  const endAt = start + duration * 1000;
+
+  const tick = () => {
+    const now = performance.now();
+    const elapsed = (now - start) / 1000;
+    const progress = Math.min(elapsed / duration, 1);
+
+    drawFrame(code, prompt, progress, duration, elapsed);
+
+    if (now < endAt) {
+      activeAnimation = requestAnimationFrame(tick);
+    } else {
+      mediaRecorder.stop();
+      cancelAnimationFrame(activeAnimation);
+      activeAnimation = null;
+    }
+  };
+
+  mediaRecorder.start();
+  drawFrame(code, prompt, 0, duration, 0);
+  activeAnimation = requestAnimationFrame(tick);
+}
+
+async function previewSpeech() {
+  const text = promptInput.value || 'Voici une présentation de votre application.';
+  if (!('speechSynthesis' in window)) {
+    setStatus('La lecture vocale n’est pas disponible dans ce navigateur.', true);
+    return;
+  }
+
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.9;
+  utterance.pitch = 1.1;
+  utterance.lang = 'fr-FR';
+  speechSynthesis.speak(utterance);
+  setStatus('Lecture vocale lancée.');
+}
+
+generateBtn.addEventListener('click', createVideoExport);
+voicePreviewBtn.addEventListener('click', previewSpeech);
+
+drawFrame(codeInput.value, promptInput.value, 0.15, 30, 8);

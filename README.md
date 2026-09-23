@@ -1,2 +1,5 @@
-# code-video-studio
-Simple code-to-video app prototype that turns code into a short animated video preview.
+node_modules
+dist
+.vite
+.DS_Store
+npm-debug.log*

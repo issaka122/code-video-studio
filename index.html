@@ -1,73 +1,18 @@
-<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CodeVideo Studio</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./src/styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark">CV</div>
-          <div>
-            <p class="eyebrow">MVP</p>
-            <h1>CodeVideo Studio</h1>
-          </div>
-        </div>
-        <button id="voicePreviewBtn" class="secondary-btn" type="button">Lecture vocale</button>
-      </header>
+import { defineConfig } from 'vite';
 
-      <main class="layout">
-        <section class="panel input-panel">
-          <label for="promptInput">Titre / prompt</label>
-          <input id="promptInput" type="text" value="Tutoriel de lancement d’une application moderne" placeholder="Ex: Demo produit SaaS en 90 secondes" />
-
-          <label for="codeInput">Code ou texte</label>
-          <textarea id="codeInput" spellcheck="false">const app = {
-  name: 'CodeVideo Studio',
-  version: '1.0.0',
-  status: 'ready'
-};
-
-function launchApp() {
-  console.log('Démarrage de l’application...');
-  return app;
-}
-
-launchApp();</textarea>
-
-          <div class="row controls">
-            <label for="durationSelect">Durée</label>
-            <select id="durationSelect">
-              <option value="30">30 secondes</option>
-              <option value="60">1 minute</option>
-              <option value="180">3 minutes</option>
-              <option value="600">10 minutes</option>
-            </select>
-
-            <button id="generateBtn" class="primary-btn" type="button">Créer la vidéo</button>
-          </div>
-
-          <div id="status" class="status">Prêt à générer une vidéo.</div>
-        </section>
-
-        <section class="panel preview-panel">
-          <div class="canvas-wrap">
-            <canvas id="sceneCanvas" width="1280" height="720"></canvas>
-          </div>
-
-          <div class="download-row">
-            <a id="downloadLink" class="download-link hidden" href="#" download="codevideo.webm">Télécharger la vidéo</a>
-          </div>
-        </section>
-      </main>
-    </div>
-
-    <script type="module" src="./src/main.js"></script>
-  </body>
-</html>
+export default defineConfig({
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
+      }
+    }
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 4173
+  }
+});
